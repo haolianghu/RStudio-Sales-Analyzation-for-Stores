@@ -1,0 +1,156 @@
+######################
+### KNN Classifier ###
+######################
+
+# The goal is to determine if a customer is a Window Shopper or High Roller
+
+library(tidyverse)
+library(caret)
+
+purchases = purchases_type
+glimpse(purchases)
+
+# data splitting 
+set.seed(100)
+n <- nrow(purchases)
+
+train.row  <- sample(1:n, 0.8*n)       # randomly select 80% of rows in data frame 
+train.data <- purchases[train.row,]    # create training data
+test.data  <- purchases[-train.row,]   # create testing data
+        
+# KNN classifier with train()
+# train a model to classify type (WS or HR) based on other variables 
+# frequency of store visit, amount of spending, and a dummy variable for female
+
+      purch.knn <- train(
+         type ~., data = train.data,    # type is a factor variable (WS/HR)
+         
+         # use-k nearest neighbor
+         method = "knn",                           
+         
+         # 10-fold cross validation
+         trControl = trainControl("cv", number = 10),  
+         
+         # preprocess data with standardization (i.e. z-scores)
+         preProcess = c("center","scale"),         
+         
+         # granularity for searching for K
+         tuneLength = 15
+      )
+
+purch.knn
+      
+# view plot of accuracy at different values of k
+plot(purch.knn)      
+
+# extract best k 
+purch.knn$bestTune
+
+# return of the confusion matrix
+test.data = test.data %>% 
+   mutate(prediction = predict(purch.knn, test.data))
+
+# cross-tabulated counts by actual type and predicted type
+xtabs(~type + prediction, data = test.data)
+
+            #    prediction
+            # type HR WS
+            # HR   72 31
+            # WS   20 77
+
+# accuracy
+xtabs(~type + prediction, data = test.data) %>%
+   prop.table()
+            #       prediction
+            # type    HR    WS
+            #   HR 0.360 0.155
+            #   WS 0.100 0.385
+            # 
+            # 0.360 + 0.385 = 0.745
+
+# null model for comparison
+# accuracy = proportion of most common observation in training data set
+xtabs(~type, data = train.data) %>% 
+   prop.table() 
+            # type
+            # HR      WS 
+            # 0.49625 0.50375
+
+# recall / true positive rate / sensitivity
+xtabs(~type + prediction, data= test.data) %>% 
+   # conditioning on row variable type
+   prop.table(margin = 1) %>%  
+   round(3)
+            # prediction
+            # type    HR    WS
+            #   HR 0.699 0.301
+            #   WS 0.206 0.794
+
+# recall = 0.699 = TPR  (top row ^)
+# of the 103 HR, model correctly classified 72 of them as HR
+
+# true negative rate / specificity 
+# TNR = 0.794 (bottom row ^)
+# of the 97 WS, model correctly classified 77 of them as WS
+
+# false positive rate = 1 - TNR =  1 - 0.794 = 0.206
+# of the 97 WS, model incorrectly classified 20 of them as WS
+
+# precision
+xtabs(~type + prediction, data= test.data) %>% 
+   # conditioning on column variable prediction
+   prop.table(margin = 2) %>% 
+   round(3)
+
+         # prediction
+         # type    HR    WS
+         #   HR 0.783 0.287
+         #   WS 0.217 0.713
+
+# precision = true positives / predicted positives
+# of the 92 HR classified by model, 72 were in fact HR 
+
+
+####################################################################
+# use KNN to predict spend ($) from type/frequency/female variables
+spend.knnr <- train(
+   spend ~., data = train.data,     
+   method = "knn",                  
+   trControl = trainControl("cv", number = 10),
+   preProcess = c("center","scale"),
+   tuneLength = 50
+)
+spend.knnr
+
+plot(spend.knnr)
+
+spend.knnr$bestTune   # best value of k used for model
+
+
+####################################################################
+# use logistic regression to predict customer type
+
+# create dummy variable from type to identify High Rollers
+purchases2 <- purchases %>% 
+   mutate(HR = ifelse(type=='HR', 1, 0))
+
+# repeat data splitting with updated data frame
+train.data2 <- purchases2[train.row,]
+test.data2  <- purchases2[-train.row,]
+
+# fit logistic regression model for HR dummy variable
+purch.glm = glm(HR ~ . -type, data = train.data2, family=binomial)
+
+# create a vector of probabilities to compare against 's'
+# s = the cutoff probability for a classification rule for HR 
+pred.glm = predict(purch.glm, test.data2, type="response")
+
+# s = 0.70  
+# classify as HR if P(HR | GLM model) >= 70%:   
+pred70 = pred.glm >= 0.7
+xtabs(~type + pred70, data = test.data2) 
+
+# s = 0.45
+# classify as HR if P(HR | GLM model) >= 45%:   
+pred45 = pred.glm >= 0.45
+xtabs(~type + pred45, data = test.data2) 
