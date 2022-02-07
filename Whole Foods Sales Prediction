@@ -1,0 +1,231 @@
+##################################
+####  Time Series Analysis   ##### 
+####  with Whole Foods data  #####
+##################################
+ 
+library(tidyverse)
+library(mosaic)
+library(ggthemes)
+# set plot theme
+theme_set(theme_classic()) 
+options (scipen = 999)
+
+glimpse(whole_foods)
+
+
+# sales by quarter
+ggplot(whole_foods, aes(x=year, y=sales)) + 
+   geom_line() +   
+   geom_point(size = 2, color = '#00674b') +
+   ggtitle("Whole Foods net sales (million$), 1995-2016") +
+   scale_y_continuous(name = "", breaks = seq(0, 5000000, 500000) ) + 
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 2)) 
+
+
+#######################
+# TREND component for quarterly sales
+# need to find which trend fit is best
+
+# linear model for trend
+ggplot(whole_foods, aes(x=year, y=sales)) + 
+   geom_line() +   
+   geom_point(size = 2, color = '#00674b') +
+   geom_smooth(method='lm', se = F, color = '#ff9900', size=1, linetype = "dashed") +
+   ggtitle("Whole Foods net sales (Million$), 1995-2016") +
+   scale_y_continuous(name = "", breaks = seq(0, 5000000, 500000) ) + 
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 2))  
+
+# test out a simple linear fit for Trend
+lm1 = lm(sales ~ year, data = whole_foods)
+plot(lm1)
+
+# log-linear model for Trend == some improvement
+ggplot(whole_foods, aes(x=year, y=log(sales))) + 
+   geom_line()  + 
+   geom_point(size = 2, color = '#00674b') +
+   geom_smooth(method = "lm", se = F, color = '#ff9900', size=1, linetype = "dashed") +
+   ggtitle("Logarithm of Whole Foods net sales ($M), 1995-2016") +  
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 1))       
+
+# fit log-linear model
+log_lm = lm(log(sales) ~ year, data = whole_foods)
+library(ggfortify)
+autoplot(log_lm)
+
+# taking the log of sales has made the relationship more linear
+# but there still seems to be nonlinear structure in the residuals
+# and also a clear pattern with subgrouping (due to seasonality)
+
+# quadratic model for Trend
+ggplot(whole_foods, aes(x=year, y=sales)) + 
+   geom_line()  + 
+   geom_point(size = 2, color = '#00674b') +
+   geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = F, 
+               color = '#ff9900', size=1, linetype = "dashed") +
+   ggtitle("Quadratic fit with Whole Foods net sales ($M), 1995-2016") +  
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 1))     
+
+# fitting quadratic model
+lm_quad = lm(sales ~ year + I(year^2), data = whole_foods)
+autoplot(lm_quad)
+   
+# linearity seems better, but normality and equal variance assumptions are violated
+# log transformation of a variable can help with violations
+
+# log-quadratic model for Trend
+ggplot(whole_foods, aes(x=year, y=log(sales))) + 
+   geom_line()  + 
+   geom_point(size = 2, color = '#00674b') +
+   geom_smooth(method = "lm", formula = y ~ x + I(x^2), se = F, 
+               color = '#ff9900', size=1, linetype = "dashed") +
+   ggtitle("Log-Quadratic Model: Whole Foods net sales ($M), 1995-2016") +  
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 1))       
+
+# adding a quadratic term to log model
+# a log-quadratic model:
+lm(log(sales) ~ year + I(year^2), data = whole_foods)  %>%  autoplot()
+
+# linearity of residuals is noticeably improved
+
+# use the log-quadratic fit as Trend model
+lm_trend = lm(log(sales) ~ year + I(year^2), data = whole_foods)
+summary(lm_trend)
+ 
+# the residuals from Trend model are the de-Trended sales.
+# add to data frame: fitted values (trend) and the de-trended residuals 
+# (i.e., trend-adjusted sales)
+whole_foods = whole_foods  %>% 
+   mutate(detrend = residuals(lm_trend)) %>%
+   mutate(trend = fitted(lm_trend))
+
+glimpse(whole_foods)
+
+# plot the de-Trended Sales
+ggplot(whole_foods, aes(x=year, y=detrend)) + 
+   geom_line(color = 'gray70') +
+   geom_point(size = 2, color = '#00674b') +
+   geom_smooth(method = 'lm', se = F, color = '#ff9900', 
+   size=1, linetype = "dashed") +
+   ggtitle("Logarithm of Whole Foods detrended net sales, 1995-2016") +
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 2))  
+
+# forecast for the next quarter, Q1 in 2017 
+predict(lm_trend, newdata = data.frame(year = 2017), 
+        interval = 'predict')  
+   
+      # these results are in log units
+      # exponentiate to get back to original scale (M$ in sales)
+      
+               # fit      lwr      upr
+               # 1 15.26928 14.97679 15.56177
+      exp(15.26928)
+
+
+#######################
+# the seasonal component
+
+# log sales by quarter
+ggplot(whole_foods, aes(x=year, y=log(sales), color=quarter)) + 
+   geom_line(color = 'gray65')  + 
+   geom_point(size = 2) +
+   geom_smooth(method = "lm", se = F,  size=1, linetype = "dashed") +
+   ggtitle("Logarithm of Whole Foods net sales ($M), 1995-2016") +  
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 2)) +
+   scale_y_continuous(name = "") +
+         scale_color_economist() + theme_economist() +
+         theme(legend.position="top") + theme(legend.title = element_blank()) 
+
+# there is a periodic seasonal pattern with respect to fiscal year quarters
+# need to incorporate that variation into model
+
+# fit the Seasonal model to de-Trended (log) Sales
+ggplot(whole_foods, aes(x=year, y=detrend)) + 
+   geom_line(color = 'gray65') +
+   geom_point(size = 1.5, color = '#00674b') +
+   geom_smooth(method = 'lm', se = F, color = '#ff9900', 
+               size=1, linetype = "dashed") +
+   ggtitle("Logarithm of Whole Foods de-trended net sales ($M), 1995-2016") +
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 2))  
+
+   # create dummy variables for quarter
+   whole_foods = whole_foods %>%
+      mutate(q1 = ifelse(quarter == 'Q1', 1, 0),
+             q2 = ifelse(quarter == 'Q2', 1, 0),
+             q3 = ifelse(quarter == 'Q3', 1, 0),
+             q4 = ifelse(quarter == 'Q4', 1, 0))
+
+   glimpse(whole_foods)
+
+# extract the seasonal component from detrended sales 
+# by regressing detrended sales (i.e., residuals from Trend model) 
+# on seasonal indicators S2, S3, S4:
+lm_season = lm(detrend ~ q2 + q3 + q4, data = whole_foods)
+summary(lm_season)
+
+# add the fitted values and the residuals from seasonal model to the data frame
+# residuals from this model represent de-Trended/de-Seasonalized sales
+whole_foods = whole_foods  %>% 
+   mutate(seasonal = fitted(lm_season)) %>%
+   mutate(deseasonal_detrended = residuals(lm_season))
+
+glimpse(whole_foods)
+
+# plot the seasonal component
+ggplot(whole_foods, aes(x=year, y=seasonal)) + 
+   geom_line(color = 'gray65') +
+   geom_point(size = 1.5, color = '#00674b') + 
+   geom_abline(intercept = 0, slope = 0, color = '#ff9900', 
+               size=1, linetype = "dashed") +
+   ggtitle("Whole Foods Seasonal (log) Fit, 1995-2016") +
+   scale_y_continuous(name = "", breaks = seq(-0.2, 1, 0.1) ) + 
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 2))  
+
+# plot the error ("irregular") component
+ggplot(whole_foods, aes(x=year, y=deseasonal_detrended)) + 
+   geom_line(color = 'gray65') +
+   geom_point(size = 1.5, color = '#00674b') +
+   geom_abline(intercept = 0, slope = 0, se = F, color = '#ff9900', 
+               size=1, linetype = "dashed") +
+   ggtitle("Whole Foods Irregular (log) Component, 1995-2016") +
+   scale_y_continuous(name = "", breaks = seq(-0.2, 1, 0.1) ) + 
+   scale_x_continuous(name = "", breaks = seq(1995, 2016, 2))  
+
+         # Positive autocorrelation clearly visible
+         acf(whole_foods$deseasonal_detrended)
+         # more on acf() next week
+     
+
+#######################
+# forecasting
+
+# forecast the Trend (in log scale) for qtr1 of 2017:
+predict(lm_trend, newdata = data.frame(year = 2017), interval = 'predict')
+
+# exponentiate to transform back from log sales --> sales
+exp(15.26928)
+
+# forecast the Seasonal model (in log scale) for next quarter (Q1 2017):
+predict(lm_season, newdata = data.frame(q2 = 0, q3 = 0, q4 = 0), interval = 'predict')
+
+# exponentiate to transform back from log units
+exp(0.218888)
+
+# forecast of qtr1 2017 is T + S = 
+15.26928 + 0.218888
+
+# since these estimates are in log scale, exponentiate:
+exp(15.26928 + 0.218888)
+
+# combine the separate Trend and Seasonal models into one.
+# forecast sales in log scale.
+lm_combine = lm(log(sales) ~ year + I(year^2) + q2 + q3 + q4, data = whole_foods)
+
+# forecast sales for next quarter (i.e., Q1 in 2017)
+# forecast the Trend (in log scale):
+predict(lm_combine, newdata = data.frame(year = 2017, q2 = 0, q3 = 0, q4 = 0), 
+        interval = 'predict')
+
+# convert to original scale:
+exp(15.49664)
+
+summary(lm_combine)
