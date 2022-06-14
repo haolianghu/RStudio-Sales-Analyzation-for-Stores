@@ -192,7 +192,6 @@ ggplot(whole_foods, aes(x=year, y=deseasonal_detrended)) +
 
          # Positive autocorrelation clearly visible
          acf(whole_foods$deseasonal_detrended)
-         # more on acf() next week
      
 
 #######################
